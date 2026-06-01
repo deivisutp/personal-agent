@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=mistral-nemo
+      - OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+      - CHROMA_PERSIST_DIR=/app/data/chroma
+      - LOG_LEVEL=INFO
+      # GitHub (optional)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # Azure DevOps (optional)
+      - AZURE_DEVOPS_ORG=${AZURE_DEVOPS_ORG:-}
+      - AZURE_DEVOPS_PAT=${AZURE_DEVOPS_PAT:-}
+      - AZURE_DEVOPS_PROJECT=${AZURE_DEVOPS_PROJECT:-}
+    volumes:
+      - chroma_data:/app/data/chroma
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+    driver: local

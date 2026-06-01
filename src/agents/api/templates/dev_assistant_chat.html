@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dev Assistant</title>
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1d2230;
+    --border: #2a3142;
+    --text: #e6e8ee;
+    --muted: #8a93a6;
+    --accent: #6aa2ff;
+    --user: #2b3a55;
+    --assistant: #1f2533;
+    --error: #4a1f25;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--accent); }
+  .app { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; }
+  aside header { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  aside header h1 { font-size: 15px; margin: 0 0 4px 0; }
+  aside header .stats { color: var(--muted); font-size: 12px; }
+  aside .new-btn { margin: 12px; padding: 10px 12px; background: var(--accent);
+    color: #0a0f1f; border: 0; border-radius: 6px; font-weight: 600; cursor: pointer; }
+  .sessions { overflow-y: auto; flex: 1; padding: 0 8px 8px; }
+  .session-row { display: flex; align-items: center; padding: 8px 10px; border-radius: 6px;
+    cursor: pointer; color: var(--text); text-decoration: none; gap: 6px; }
+  .session-row:hover { background: var(--panel-2); }
+  .session-row.active { background: var(--panel-2); border: 1px solid var(--border); }
+  .session-row .title { flex: 1; font-size: 13px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+  .session-row .del { color: var(--muted); background: transparent; border: 0; cursor: pointer; }
+  .session-row .del:hover { color: #ff6b6b; }
+  main { display: flex; flex-direction: column; height: 100vh; }
+  .toolbar { padding: 10px 16px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: center; background: var(--panel); }
+  .toolbar select, .toolbar input { background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+  .toolbar .label { color: var(--muted); font-size: 12px; }
+  #messages { flex: 1; overflow-y: auto; padding: 18px 22px; }
+  .msg { max-width: 920px; margin: 0 auto 14px; padding: 12px 14px; border-radius: 10px;
+    border: 1px solid var(--border); }
+  .msg .role { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: 6px; }
+  .msg.msg-user { background: var(--user); }
+  .msg.msg-assistant { background: var(--assistant); }
+  .msg.msg-error { background: var(--error); }
+  .msg .content { font-size: 14px; line-height: 1.55; white-space: pre-wrap; }
+  .msg .content.rendered { white-space: normal; }
+  .msg .content pre { background: #0a0d14; padding: 10px 12px; border-radius: 6px;
+    overflow-x: auto; border: 1px solid var(--border); }
+  .msg .content code { background: #0a0d14; padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
+  .msg .content pre code { padding: 0; background: transparent; }
+  .msg details.sources { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .msg details.sources summary { cursor: pointer; }
+  .msg details.sources ul { margin: 6px 0 0 18px; padding: 0; }
+  form.composer { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--panel);
+    display: flex; gap: 8px; align-items: flex-end; }
+  form.composer textarea { flex: 1; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px;
+    min-height: 52px; resize: vertical; font-family: inherit; }
+  form.composer button { background: var(--accent); color: #0a0f1f; border: 0; border-radius: 8px;
+    padding: 10px 16px; font-weight: 600; cursor: pointer; }
+  form.composer button:disabled { opacity: .6; cursor: progress; }
+  .empty { color: var(--muted); text-align: center; margin-top: 80px; font-size: 14px; }
+  .htmx-indicator { display: none; color: var(--muted); font-size: 12px; padding-left: 8px; }
+  .htmx-request .htmx-indicator { display: inline; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <header>
+      <h1>Dev Assistant</h1>
+      <div class="stats">
+        Knowledge chunks: <strong>{{ stats.total_chunks }}</strong>
+        <br/>Collection: {{ stats.collection }}
+      </div>
+    </header>
+    <div style="display:flex;gap:8px;margin:0 12px 8px;">
+      <a href="/dev-assistant/ui/knowledge"
+         style="flex:1;text-align:center;color:var(--accent);font-size:12px;
+                border:1px solid var(--border);border-radius:6px;padding:6px 8px;text-decoration:none;">
+        Browse
+      </a>
+      <a href="/dev-assistant/ui/ingest"
+         style="flex:1;text-align:center;color:var(--accent);font-size:12px;
+                border:1px solid var(--border);border-radius:6px;padding:6px 8px;text-decoration:none;">
+        + Ingest
+      </a>
+    </div>
+    <button class="new-btn"
+            hx-post="/dev-assistant/ui/sessions"
+            hx-swap="none">+ New chat</button>
+    <div class="sessions">
+      {% for s in sessions %}
+      <div class="session-row {% if s.id == active_id %}active{% endif %}"
+           onclick="window.location='/dev-assistant/ui?session_id={{ s.id }}'">
+        <span class="title" title="{{ s.title }}">{{ s.title }}</span>
+        <button class="del"
+                title="Delete"
+                hx-post="/dev-assistant/ui/sessions/{{ s.id }}/delete"
+                hx-swap="none"
+                onclick="event.stopPropagation();">×</button>
+      </div>
+      {% else %}
+      <div class="empty" style="margin-top:20px;">No sessions yet</div>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <span class="label">Filter:</span>
+      <select id="filter-doc-type">
+        <option value="">any doc_type</option>
+        <option>backend_structure</option>
+        <option>backend_code</option>
+        <option>frontend_pattern</option>
+        <option>frontend_code</option>
+        <option>db_model</option>
+        <option>plsql_object</option>
+        <option>business_rule</option>
+        <option>how_to</option>
+        <option>wiki</option>
+      </select>
+      <select id="filter-layer">
+        <option value="">any layer</option>
+        <option>frontend</option>
+        <option>backend</option>
+        <option>database</option>
+        <option>infra</option>
+      </select>
+      <span style="flex:1"></span>
+      <span class="label">Session:</span>
+      <span class="label">{{ active_id or "—" }}</span>
+    </div>
+
+    <div id="messages">
+      {% if not active_id %}
+        <div class="empty">Click <strong>+ New chat</strong> to start.</div>
+      {% elif not messages %}
+        <div class="empty">Ask anything about your internal docs, code, DB or business rules.</div>
+      {% else %}
+        {% for m in messages %}
+          <div class="msg msg-{{ 'user' if m.role == 'user' else 'assistant' }}">
+            <div class="role">{{ m.role }}</div>
+            <div class="content" data-markdown="1">{{ m.content }}</div>
+            {% if m.sources %}
+              <details class="sources">
+                <summary>Sources ({{ m.sources|length }})</summary>
+                <ul>
+                  {% for s in m.sources %}
+                  <li>
+                    {% if s.url %}<a href="{{ s.url }}" target="_blank" rel="noopener">{% endif %}
+                      [{{ s.doc_type or 'doc' }}] {{ s.source }}
+                      {% if s.layer %} · {{ s.layer }}{% endif %}
+                      {% if s.heading_path %} · {{ s.heading_path }}{% endif %}
+                      {% if s.score is not none %} · {{ s.score }}{% endif %}
+                    {% if s.url %}</a>{% endif %}
+                  </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    {% if active_id %}
+    <form class="composer" id="composer" data-session-id="{{ active_id }}"
+          onsubmit="return sendMessage(event);">
+      <textarea name="question" id="composer-text"
+                placeholder="How do I implement a grid WCPanel action?  (Enter to send, Shift+Enter for newline)"
+                required></textarea>
+      <button type="submit" id="send-btn">Send</button>
+      <span class="htmx-indicator" id="streaming-indicator">streaming…</span>
+    </form>
+    {% endif %}
+  </main>
+</div>
+
+<script>
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function scrollMessages() {
+    const m = document.getElementById('messages');
+    if (m) m.scrollTop = m.scrollHeight;
+  }
+  function renderMarkdownIn(el) {
+    if (!el) return;
+    const raw = el.dataset.raw != null ? el.dataset.raw : el.textContent;
+    el.innerHTML = marked.parse(raw, { breaks: true, gfm: true });
+    el.classList.add('rendered');
+    el.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+  }
+  function renderMarkdown() {
+    document.querySelectorAll('.msg .content[data-markdown="1"]').forEach(el => {
+      renderMarkdownIn(el);
+      el.removeAttribute('data-markdown');
+    });
+  }
+  function renderSourcesHtml(sources) {
+    if (!sources || !sources.length) return '';
+    const items = sources.map(s => {
+      const parts = [];
+      if (s.doc_type) parts.push('[' + s.doc_type + ']');
+      parts.push(s.source || 'unknown');
+      if (s.layer) parts.push('· ' + s.layer);
+      if (s.heading_path) parts.push('· ' + s.heading_path);
+      if (s.score != null) parts.push('· ' + s.score);
+      const txt = escapeHtml(parts.join(' '));
+      return s.url
+        ? '<li><a href="' + escapeHtml(s.url) + '" target="_blank" rel="noopener">' + txt + '</a></li>'
+        : '<li>' + txt + '</li>';
+    }).join('');
+    return '<details class="sources" open><summary>Sources (' + sources.length + ')</summary><ul>'
+           + items + '</ul></details>';
+  }
+
+  let activeSource = null;
+
+  function sendMessage(ev) {
+    ev.preventDefault();
+    const form = document.getElementById('composer');
+    const ta = document.getElementById('composer-text');
+    const btn = document.getElementById('send-btn');
+    const indicator = document.getElementById('streaming-indicator');
+    const sessionId = form.dataset.sessionId;
+    const question = (ta.value || '').trim();
+    if (!question) return false;
+
+    const docType = (document.getElementById('filter-doc-type') || {}).value || '';
+    const layer = (document.getElementById('filter-layer') || {}).value || '';
+
+    // Append user bubble
+    const messages = document.getElementById('messages');
+    // remove any "empty" placeholder
+    messages.querySelectorAll('.empty').forEach(e => e.remove());
+    const userDiv = document.createElement('div');
+    userDiv.className = 'msg msg-user';
+    userDiv.innerHTML = '<div class="role">user</div><div class="content"></div>';
+    userDiv.querySelector('.content').textContent = question;
+    messages.appendChild(userDiv);
+    renderMarkdownIn(userDiv.querySelector('.content'));
+
+    // Pending assistant bubble
+    const asstDiv = document.createElement('div');
+    asstDiv.className = 'msg msg-assistant';
+    asstDiv.innerHTML = '<div class="role">assistant</div>'
+                      + '<div class="content" data-raw=""></div>'
+                      + '<div class="src-slot"></div>';
+    messages.appendChild(asstDiv);
+    const contentEl = asstDiv.querySelector('.content');
+    const srcSlot = asstDiv.querySelector('.src-slot');
+    let buffer = '';
+    let collectedSources = [];
+    let renderTimer = null;
+    function scheduleRender() {
+      if (renderTimer) return;
+      renderTimer = setTimeout(() => {
+        renderTimer = null;
+        contentEl.dataset.raw = buffer;
+        contentEl.innerHTML = marked.parse(buffer, { breaks: true, gfm: true });
+        contentEl.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+        scrollMessages();
+      }, 40);
+    }
+
+    btn.disabled = true;
+    indicator.classList.add('htmx-indicator-on');
+    form.classList.add('htmx-request');
+    ta.value = '';
+    scrollMessages();
+
+    if (activeSource) { try { activeSource.close(); } catch (_) {} }
+
+    const params = new URLSearchParams({ question });
+    if (docType) params.set('doc_type', docType);
+    if (layer) params.set('layer', layer);
+    const url = '/dev-assistant/sessions/' + encodeURIComponent(sessionId)
+              + '/messages/stream?' + params.toString();
+    const es = new EventSource(url);
+    activeSource = es;
+
+    es.addEventListener('sources', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        collectedSources = data.sources || [];
+      } catch (_) {}
+    });
+    es.addEventListener('delta', (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        buffer += data.text || '';
+        scheduleRender();
+      } catch (_) {}
+    });
+    const finish = () => {
+      btn.disabled = false;
+      form.classList.remove('htmx-request');
+      indicator.classList.remove('htmx-indicator-on');
+      es.close();
+      activeSource = null;
+      // Final render
+      contentEl.dataset.raw = buffer;
+      contentEl.innerHTML = marked.parse(buffer, { breaks: true, gfm: true });
+      contentEl.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+      srcSlot.innerHTML = renderSourcesHtml(collectedSources);
+      scrollMessages();
+    };
+    es.addEventListener('done', finish);
+    es.addEventListener('error', (e) => {
+      if (!buffer) {
+        contentEl.textContent = '⚠ stream error';
+      }
+      finish();
+    });
+    return false;
+  }
+
+  // Enter to send, Shift+Enter for newline
+  document.addEventListener('keydown', (e) => {
+    if (e.target && e.target.id === 'composer-text' && e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById('composer').requestSubmit();
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => { renderMarkdown(); scrollMessages(); });
+</script>
+</body>
+</html>

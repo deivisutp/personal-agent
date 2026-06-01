@@ -1,0 +1,21 @@
+# Knowledge manifest for the Dev Assistant
+# Copy to knowledge_manifest.yaml and edit to match YOUR sources.
+#
+# Each entry must have a `kind` (wiki | directory | file) and a `doc_type`.
+# Metadata you set here (doc_type, layer, component, tags) is attached to every
+# chunk and used as a filter at retrieval time.
+
+sources:
+  # Azure DevOps wiki section (requires AZURE_DEVOPS_* env vars)
+  - kind: wiki
+    wiki_name: "Architecture"
+    path: "/Backend"
+    doc_type: backend_structure
+    layer: backend
+    recursive: true
+
+  # Local docs folder (markdown, txt)
+  - kind: directory
+    path: "C:/repos/my-app/docs"
+    doc_type: how_to
+    layer: backend

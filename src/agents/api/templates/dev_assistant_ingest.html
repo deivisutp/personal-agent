@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Dev Assistant — Ingest</title>
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161922; --panel-2: #1d2230; --border: #2a3142;
+    --text: #e6e8ee; --muted: #8a93a6; --accent: #6aa2ff; --good: #4ade80; --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  header.top { padding: 12px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 16px;
+    align-items: center; background: var(--panel); }
+  header.top h1 { margin: 0; font-size: 16px; }
+  header.top .stats { color: var(--muted); font-size: 13px; }
+  header.top .nav { margin-left: auto; display: flex; gap: 12px; font-size: 13px; }
+  .layout { padding: 24px; max-width: 1080px; margin: 0 auto; display: grid; gap: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  .card h2 { margin: 0 0 4px; font-size: 15px; }
+  .card .desc { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+  .grid { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+  .grid.full > .row { grid-column: 1 / -1; }
+  label { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase;
+    letter-spacing: .04em; margin-bottom: 4px; }
+  input[type="text"], input[type="number"], select, textarea {
+    width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
+  textarea { min-height: 80px; resize: vertical; }
+  .actions { margin-top: 12px; display: flex; gap: 10px; align-items: center; }
+  button { background: var(--accent); color: #0a0f1f; border: 0; border-radius: 6px;
+    padding: 8px 16px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  button:disabled { opacity: .6; cursor: progress; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .htmx-indicator { display: none; color: var(--muted); font-size: 12px; }
+  .htmx-request .htmx-indicator { display: inline; }
+  .result { margin-top: 14px; padding: 12px 14px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--panel-2); font-size: 13px;
+    white-space: pre-wrap; word-break: break-word; }
+  .result.good { border-color: var(--good); }
+  .result.bad { border-color: var(--bad); color: #ffd6d6; }
+  .checkbox-row { display: flex; gap: 6px; align-items: center; }
+  .checkbox-row input { width: auto; }
+  small.hint { display: block; color: var(--muted); font-size: 11px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Ingest into Dev Assistant knowledge</h1>
+  <span class="stats">{{ stats.total_chunks }} chunks indexed · collection {{ stats.collection }}</span>
+  <span class="nav">
+    <a href="/dev-assistant/ui">← chat</a>
+    <a href="/dev-assistant/ui/knowledge">browse →</a>
+  </span>
+</header>
+
+<div class="layout">
+
+  <!-- Azure DevOps Wiki -->
+  <div class="card">
+    <h2>Azure DevOps wiki</h2>
+    <div class="desc">
+      Pull pages from your project wiki and index them with <code>doc_type</code> /
+      <code>layer</code> metadata so hybrid search and filters work correctly.
+      Uses the same Azure DevOps MCP client as the Pattern agent.
+      Requires <code>AZURE_DEVOPS_PAT</code> in your <code>.env</code>.
+    </div>
+
+    <form hx-post="/dev-assistant/ui/ingest/wiki"
+          hx-target="#wiki-result"
+          hx-swap="innerHTML"
+          hx-indicator="#wiki-indicator"
+          hx-on::before-request="this.querySelector('button[type=submit]').disabled = true;"
+          hx-on::after-request="this.querySelector('button[type=submit]').disabled = false;">
+      <div class="grid">
+        <div class="row">
+          <label>Wiki name *</label>
+          <input type="text" name="wiki_name" value="{{ default_wiki }}" placeholder="wiki" required />
+          <small class="hint">e.g. <code>wiki</code></small>
+        </div>
+        <div class="row">
+          <label>Path</label>
+          <input type="text" name="path" placeholder="/Architecture/Backend" />
+          <small class="hint">leave blank for root; e.g. <code>/Architecture/Backend</code></small>
+        </div>
+        <div class="row">
+          <label>Project (optional)</label>
+          <input type="text" name="project" value="{{ default_project }}" placeholder="defaults to AZURE_DEVOPS_PROJECT" />
+        </div>
+        <div class="row">
+          <label>doc_type</label>
+          <select name="doc_type">
+            {% for opt in ['wiki','backend_structure','backend_code','frontend_pattern','frontend_code','db_model','plsql_object','business_rule','how_to','manual','doc'] %}
+              <option value="{{ opt }}">{{ opt }}</option>
+            {% endfor %}
+          </select>
+          <small class="hint">applied to every chunk; pick what fits the path you're ingesting.</small>
+        </div>
+        <div class="row">
+          <label>layer</label>
+          <select name="layer">
+            <option value="">— none —</option>
+            {% for opt in ['frontend','backend','database','infra'] %}
+              <option value="{{ opt }}">{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="row">
+          <label>component (optional)</label>
+          <input type="text" name="component" placeholder="e.g. wcpanel" />
+        </div>
+        <div class="row">
+          <div class="checkbox-row">
+            <input type="checkbox" name="recursive" id="wiki-recursive" value="true" checked />
+            <label for="wiki-recursive" style="margin: 0; text-transform: none; letter-spacing: 0;">Recursive (include all sub-pages)</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit">Ingest from wiki</button>
+        <span class="htmx-indicator" id="wiki-indicator">Fetching pages and embedding… this can take several minutes.</span>
+      </div>
+    </form>
+
+    <div id="wiki-result"></div>
+  </div>
+
+  <!-- Local directory -->
+  <div class="card">
+    <h2>Local directory</h2>
+    <div class="desc">Index a folder of <code>.md</code>, <code>.txt</code>, <code>.py</code>,
+      <code>.sql</code>, <code>.ts</code>… files. Useful for repo READMEs, CONVENTIONS, PL/SQL packages, etc.</div>
+
+    <form hx-post="/dev-assistant/ui/ingest/path"
+          hx-target="#path-result" hx-swap="innerHTML"
+          hx-indicator="#path-indicator"
+          hx-on::before-request="this.querySelector('button[type=submit]').disabled = true;"
+          hx-on::after-request="this.querySelector('button[type=submit]').disabled = false;">
+      <div class="grid">
+        <div class="row">
+          <label>Path *</label>
+          <input type="text" name="path" placeholder="C:/repos/sql" required />
+        </div>
+        <div class="row">
+          <label>doc_type</label>
+          <select name="doc_type">
+            {% for opt in ['doc','plsql_object','db_model','backend_code','frontend_code','config','how_to'] %}
+              <option value="{{ opt }}">{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="row">
+          <label>layer</label>
+          <select name="layer">
+            <option value="">— none —</option>
+            {% for opt in ['frontend','backend','database','infra'] %}
+              <option value="{{ opt }}">{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="row">
+          <label>component (optional)</label>
+          <input type="text" name="component" />
+        </div>
+        <div class="row">
+          <div class="checkbox-row">
+            <input type="checkbox" name="recursive" id="path-recursive" value="true" checked />
+            <label for="path-recursive" style="margin: 0; text-transform: none; letter-spacing: 0;">Recursive</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit">Ingest directory</button>
+        <span class="htmx-indicator" id="path-indicator">Reading files and embedding…</span>
+      </div>
+    </form>
+
+    <div id="path-result"></div>
+  </div>
+
+  <!-- Manifest -->
+  <div class="card">
+    <h2>Manifest file</h2>
+    <div class="desc">Ingest everything declared in a <code>knowledge_manifest.yaml</code> in one shot.</div>
+
+    <form hx-post="/dev-assistant/ui/ingest/manifest"
+          hx-target="#manifest-result" hx-swap="innerHTML"
+          hx-indicator="#manifest-indicator"
+          hx-on::before-request="this.querySelector('button[type=submit]').disabled = true;"
+          hx-on::after-request="this.querySelector('button[type=submit]').disabled = false;">
+      <div class="grid full">
+        <div class="row">
+          <label>Manifest path *</label>
+          <input type="text" name="manifest_path" value="{{ default_manifest_path }}" required />
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit">Run manifest</button>
+        <span class="htmx-indicator" id="manifest-indicator">Running… this can take a while for large manifests.</span>
+      </div>
+    </form>
+
+    <div id="manifest-result"></div>
+  </div>
+
+  <!-- Danger -->
+  <div class="card">
+    <h2 style="color: var(--bad);">Danger zone</h2>
+    <div class="desc">Wipe the entire <code>{{ stats.collection }}</code> collection. Cannot be undone.</div>
+    <form hx-delete="/dev-assistant/knowledge"
+          hx-target="#clear-result" hx-swap="innerHTML"
+          hx-confirm="Really clear ALL indexed chunks?">
+      <button type="submit" class="secondary" style="border-color: var(--bad); color: var(--bad);">
+        Clear knowledge
+      </button>
+    </form>
+    <div id="clear-result"></div>
+  </div>
+
+</div>
+</body>
+</html>
